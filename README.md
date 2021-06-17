@@ -1,16 +1,22 @@
+## No Longer Maintained
+Hi all, I'm unable to maintain this component anymore due to time constraints. Unfortunately, there is a fatal issue with these sensors that has appeared over the year. They can die permanently if the battery gets too low, https://twitter.com/WyzeCam/status/1321147804610252800. Wyze is no longer selling wyze sense v1. If and when new sensors come out, I will try to create a component for those. Apologies to all who have bought these sensors, it seems like the sensors themselves are flawed, leading to a ton of issues after a year, and this component can't do much about it.
+
+I recommend upvoting this thread on the wyze forums so that wyze knows we want an official wyzesense integration: https://forums.wyzecam.com/t/home-assistant-integration/3971
+
 # Home Assistant - WYZE Sense Component
 
 > Special thanks to [HcLX](https://hclxing.wordpress.com) and his work on [WyzeSensePy](https://github.com/HclX/WyzeSensePy) which is the core of this component. His reverse engineering talents and development of WyzeSensePy made it quite easy to connect with WYZE sense devices.
 
 Are you a visual person? Here's a [video walkthrough](https://www.youtube.com/watch?v=19UCwf4uidQ) of the setup and configuration. Check this README for the most up to date information.
 
-WARNING: This component does not work on Mac OSX systems.
+WARNING: This component does not work on Mac OSX, Synology DSM, or other OSs that don't have hidraw drivers.
 
 ## Installation (HACS) - Highly Recommended
 0. Have [HACS](https://github.com/custom-components/hacs) installed, this will allow you to easily update
 1. Add `https://github.com/kevinvincent/ha-wyzesense` as a [custom repository](https://custom-components.github.io/hacs/usage/settings/#add-custom-repositories) as Type: Integration
 2. Click install under "Wyze Sense Component", restart your instance.
-3. Plug in the WYZE Sense hub (the usb device) into an open port on your device.
+NOTE: You must have the Wyze Sense Hub removed from you device before installing the Wyze Sense Component and restarting your instance. If not, the setup may fail.
+3. Plug in the Wyze Sense Hub (the usb device) into an open port on your device.
 
 ## Installation (Manual)
 1. Download this repository as a ZIP (green button, top right) and unzip the archive
@@ -21,15 +27,19 @@ WARNING: This component does not work on Mac OSX systems.
 3. Plug in the WYZE Sense hub (the usb device) into an open port on your device.
 
 ## Configuration
-Add the following to your configuration file
+Add the following to your configuration file and restart Home Assistant to load the configuration
+
+The custom_component will use the contents of `/sys/class/hidraw` to determine which `hidraw` device is the Wyze receiver dongle.
 
 ```yaml
-- platform: wyzesense
-  device: auto
+binary_sensor:
+  - platform: wyzesense
+    device: auto
 ```
 
-The custom_component will use the contents of `/sys/class/hidraw` to determine which `hidraw` device is the Wyze receiver dongle and then use that info to initialize the dongle.
+## Advanced Configuration
 
+### Specify hidraw device
 You can also optionally specify the hidraw device to use:
 
 ```yaml
@@ -37,7 +47,11 @@ binary_sensor:
   - platform: wyzesense
     device: "/dev/hidraw0"
 ```
-Most likely your device will be mounted to `/dev/hidraw0`. You can confirm the hidraw name of the device by running `dmesg | grep hidraw` to find out what hidraw number the bridge grabbed.
+Most likely your device will be mounted to `/dev/hidraw0`. You can confirm the hidraw name of the device by running `dmesg | grep hidraw` to find out what hidraw number the bridge grabbed. Be aware that sometimes on restarts the hidraw device number will change. You can permanently fix the name (ex. as '/dev/wyzesense' in order to passthrough in Docker) by following the simple steps in [this comment](https://github.com/kevinvincent/ha-wyzesense/issues/66#issuecomment-569470754)
+
+### Set initial states for sensors
+
+By default, the component will restore the last state of the entity prior to a restart. If sensors change state during a restart, the change may not be reflected in HA. In order to combat this you can optionally specify an initial_state for sensors (by mac address) that will be set upon a restart. Be sure to put quotes around "on" or "off" so that they are strings not booleans.
 
 ```yaml
 binary_sensor:
@@ -47,15 +61,16 @@ binary_sensor:
       77793176: "on"
       77793193: "off"
 ```
-By default, the component will restore the last state of the entity prior to a restart. If sensors change state during a restart, the change may not be reflected in HA. In order to combat this you can optionally specify an initial_state for sensors (by mac address) that will be set upon a restart. Be sure to put quotes around "on" or "off" so that they are strings not booleans.
+
 
 ## Usage
-* Restart HA and the sensors you have already bound to the hub (using the wyze app for example) will show up in your entities as `off` with `assumed_state: true` and no `device_class`. These will update and other attributes will be added once the component hears from the sensor for the first time.
+
+* Call the services below to add and remove sensors from your WYZE Sense hub.
+
+* If you have already bound sensors to the hub (for example using the Wyze Cam and Wyze App), they will be automatically added when the sensor is first triggered.
 
 * Entities will show up as `binary_sensor.wyzesense_<MAC>` for example (`binary_sensor.wyzesense_777A4656`).
   * As like any other entity you can change the entity id and friendly name from the states page, which will stick even after restarts.
-
-* Call the services below to add and remove sensors from your WYZE sense hub.
 
 * Notes on Individual Sensors
   * Motion
@@ -80,13 +95,15 @@ For all services a persistent notification will be sent for both successes and f
 * Removes a sensor. Make sure you call this service with the correct MAC address of the sensor (which is the string of numbers and possibly letters that looks like `777A4656`). You can find this in the entity's attributes in the developer section.
 
 ## Troubleshooting
+* Passing dongle hidraw device into Docker:
+  * Please follow the steps outlined in [this comment](https://github.com/kevinvincent/ha-wyzesense/issues/66#issuecomment-569470754)
 * Permission denied /dev/hidraw0
   * Additional Information
     * If you see this error on a Hassio installation please follow Reporting an Issue below. It is most likely an issue with your specific setup.
     * This is known to occur on Hassbian. This occurs when the group homeassistant is denied from accessing hidraw devices.
   * Solution
-    * Create / Modify the file `/etc/udev/rules.d/99-com.rules` on your machine and insert `KERNEL=="hidraw*", SUBSYSTEM=="hidraw", MODE="0664", GROUP="homeassistant"`
-    * Ensure the user running Home Assistant belongs to the homeassistant group
+    * Create / Modify the file `/etc/udev/rules.d/99-com.rules` on your machine and insert `KERNEL=="hidraw*", SUBSYSTEM=="hidraw", MODE="0666"`
+    * Restart your machine
 * TimeoutError: _DoCommand
   * Ensure that you have updated to the latest component code. If you still see this error follow Reporting an Issue below.
 ## Reporting an Issue

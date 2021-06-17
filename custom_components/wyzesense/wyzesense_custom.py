@@ -57,7 +57,7 @@ class Packet(object):
     # Notifications initiated from dongle side
     NOTIFY_SENSOR_ALARM       = MAKE_CMD(TYPE_ASYNC, 0x19)
     NOTIFY_SENSOR_SCAN        = MAKE_CMD(TYPE_ASYNC, 0x20)
-    NOITFY_SYNC_TIME          = MAKE_CMD(TYPE_ASYNC, 0x32)
+    NOTIFY_SYNC_TIME          = MAKE_CMD(TYPE_ASYNC, 0x32)
     NOTIFY_EVENT_LOG          = MAKE_CMD(TYPE_ASYNC, 0x35)
 
     def __init__(self, cmd, payload = bytes()):
@@ -126,10 +126,12 @@ class Packet(object):
             assert len(s) >= 7
             s = s[:7]
             payload = MAKE_CMD(cmd_type, b2)
-        else:
-            assert len(s) >= b2 + 4
+        elif len(s) >= b2 + 4:
             s = s[: b2 + 4]
             payload = s[5:-2]
+        else:
+            log.error("Invalid packet: %s", bytes_to_hex(s))
+            return None
 
         cs_remote = (s[-2] << 8) | s[-1]
         cs_local = checksum_from_bytes(s[:-2])
@@ -213,7 +215,7 @@ class Packet(object):
 
     @classmethod
     def SyncTimeAck(cls):
-        return cls(cls.NOITFY_SYNC_TIME + 1, struct.pack(">Q", int(time.time() * 1000)))
+        return cls(cls.NOTIFY_SYNC_TIME + 1, struct.pack(">Q", int(time.time() * 1000)))
 
     @classmethod
     def AsyncAck(cls, cmd):
@@ -253,14 +255,15 @@ class Dongle(object):
         sensor_mac = sensor_mac.decode('ascii')
         alarm_data = pkt.Payload[17:]
         if event_type == 0xA2:
-            if alarm_data[0] == 0x01:
+            if alarm_data[0] == 0x01 or alarm_data[0] == 0x0E:
                 sensor_type = "switch"
                 sensor_state = "open" if alarm_data[5] == 1 else "close"
-            elif alarm_data[0] == 0x02:
+            elif alarm_data[0] == 0x02 or alarm_data[0] == 0x0F:
                 sensor_type = "motion"
                 sensor_state = "active" if alarm_data[5] == 1 else "inactive"
             else:
-                sesor_type = "uknown"
+                log.info("Unknown Sensor Type: %x", alarm_data[0])
+                sensor_type = "unknown"
                 sensor_state = "unknown"
             e = SensorEvent(sensor_mac, timestamp, "state", (sensor_type, sensor_state, alarm_data[2], alarm_data[8]))
         else:
@@ -289,7 +292,7 @@ class Dongle(object):
         self.__on_event = event_handler
 
         self.__handlers = {
-            Packet.NOITFY_SYNC_TIME: self._OnSyncTime,
+            Packet.NOTIFY_SYNC_TIME: self._OnSyncTime,
             Packet.NOTIFY_SENSOR_ALARM:  self._OnSensorAlarm,
             Packet.NOTIFY_EVENT_LOG: self._OnEventLog,
         }
@@ -372,6 +375,8 @@ class Dongle(object):
             except OSError as e:
                 log.error(e)
                 break
+            except:
+                log.exception("Ignoring non-OSError in worker thread. Please share the error logs with the developers.")
 
     def _DoCommand(self, pkt, handler, timeout=_CMD_TIMEOUT):
         e = threading.Event()
